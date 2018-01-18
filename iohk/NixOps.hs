@@ -85,6 +85,7 @@ module NixOps (
 
   -- * Flags
   , BuildOnly(..)
+  , CopyOnly(..)
   , DoCommit(..)
   , DryRun(..)
   , PassCheck(..)
@@ -636,8 +637,8 @@ setenv o@Options{..} (EnvVar k) v = do
   when (oVerbose == Verbose) $
     cmd o "/bin/sh" ["-c", format ("echo 'export "%s%"='$"%s) k k]
 
-deploy :: Options -> NixopsConfig -> DryRun -> BuildOnly -> PassCheck -> RebuildExplorer -> Maybe Seconds -> IO ()
-deploy o@Options{..} c@NixopsConfig{..} dryrun buonly check reExplorer bumpSystemStartHeldBy = do
+deploy :: Options -> NixopsConfig -> DryRun -> BuildOnly -> CopyOnly -> PassCheck -> RebuildExplorer -> Maybe Seconds -> IO ()
+deploy o@Options{..} c@NixopsConfig{..} dryrun buonly coonly check reExplorer bumpSystemStartHeldBy = do
   when (elem Nodes cElements) $ do
      keyExists <- testfile "keys/key1.sk"
      unless keyExists $
@@ -677,6 +678,7 @@ deploy o@Options{..} c@NixopsConfig{..} dryrun buonly check reExplorer bumpSyste
     $  [ "--max-concurrent-copy", "50", "-j", "4" ]
     ++ [ "--dry-run"       | dryrun == DryRun ]
     ++ [ "--build-only"    | buonly == BuildOnly ]
+    ++ [ "--copy-only"     | coonly == CopyOnly ]
     ++ [ "--check"         | check  == PassCheck  ]
     ++ nixopsMaybeLimitNodes o
   echo "Done."
@@ -706,7 +708,7 @@ nodeDestroyElasticIP o c name =
 --
 defaultDeploy :: Options -> NixopsConfig -> IO ()
 defaultDeploy o c =
-  deploy o c NoDryRun NoBuildOnly DontPassCheck RebuildExplorer (Just defaultHold)
+  deploy o c NoDryRun NoBuildOnly NoCopyOnly DontPassCheck RebuildExplorer (Just defaultHold)
 
 fromscratch :: Options -> NixopsConfig -> IO ()
 fromscratch o c = do

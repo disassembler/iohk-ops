@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Weverything -Wno-unsafe -Wno-implicit-prelude #-}
+{-# OPTIONS_GHC -Weverything -Wno-unsafe -Wno-implicit-prelude -Wno-unused-top-binds #-}
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleContexts  #-}

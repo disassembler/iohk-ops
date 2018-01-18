@@ -103,7 +103,7 @@ data Command where
   Nixops'               :: NixopsCmd -> [Arg] -> Command
   Create                :: Command
   Modify                :: Command
-  Deploy                :: RebuildExplorer -> BuildOnly -> DryRun -> PassCheck -> Maybe Seconds -> Command
+  Deploy                :: RebuildExplorer -> BuildOnly -> CopyOnly -> DryRun -> PassCheck -> Maybe Seconds -> Command
   Destroy               :: Command
   Delete                :: Command
   Info                  :: Command
@@ -171,6 +171,7 @@ centralCommandParser =
                                 Deploy
                                 <$> flag NoExplorerRebuild "no-explorer-rebuild" 'n' "Don't rebuild explorer frontend.  WARNING: use this only if you know what you are doing!"
                                 <*> flag BuildOnly         "build-only"          'b' "Pass --build-only to 'nixops deploy'"
+                                <*> flag CopyOnly          "copy-only"           'p' "Pass --copy-only to 'nixops deploy'"
                                 <*> flag DryRun            "dry-run"             'd' "Pass --dry-run to 'nixops deploy'"
                                 <*> flag PassCheck         "check"               'c' "Pass --check to 'nixops build'"
                                 <*> ((Seconds . (* 60) . fromIntegral <$>)
@@ -256,7 +257,7 @@ runTop o@Options{..} args topcmd = do
             Nixops' cmd args         -> Ops.nixops                    o c cmd args
             Create                   -> Ops.create                    o c
             Modify                   -> Ops.modify                    o c
-            Deploy ner bu dry ch buh -> Ops.deploy                    o c dry bu ch ner buh
+            Deploy ner bu co dry ch buh -> Ops.deploy                 o c dry bu co ch ner buh
             Destroy                  -> Ops.destroy                   o c
             Delete                   -> Ops.delete                    o c
             Info                     -> Ops.nixops                    o c "info" []
