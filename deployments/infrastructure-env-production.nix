@@ -10,7 +10,7 @@ in {
 
     imports = [
       ./../modules/papertrail.nix
-      ./../modules/datadog.nix
+      # ./../modules/datadog.nix
     ];
 
     services.dd-agent.tags = ["env:production" "depl:${config.deployment.name}"];
@@ -23,7 +23,7 @@ in {
 
   cardano-deployer = { config, pkgs, resources, ... }: {
     imports = [
-      ./../modules/datadog.nix
+      # ./../modules/datadog.nix
       ./../modules/papertrail.nix
     ];
 
@@ -38,10 +38,10 @@ in {
   };
 
   resources = {
-    datadogMonitors = (with (import ./../modules/datadog-monitors.nix); {
-      disk = mkMonitor disk_monitor;
-      ntp = mkMonitor ntp_monitor;
-    });
+    # datadogMonitors = (with (import ./../modules/datadog-monitors.nix); {
+    #   disk = mkMonitor disk_monitor;
+    #   ntp = mkMonitor ntp_monitor;
+    # });
     elasticIPs = {
       hydra-ip    = { inherit region accessKeyId; };
       cardanod-ip = { inherit region accessKeyId; };
