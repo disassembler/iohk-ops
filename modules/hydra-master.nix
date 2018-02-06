@@ -57,7 +57,7 @@ in {
 
   services.hydra = {
     enable = true;
-    hydraURL = "https://hydra.iohk.io";
+    hydraURL = "https://hydra2.aws.iohkdev.io";
     port = 8080;
     useSubstitutes = true;
     notificationSender = "hi@iohk.io";
@@ -117,7 +117,7 @@ in {
   networking.firewall.allowedTCPPorts = [ 80 443 ];
 
   security.acme.certs = {
-    "hydra.iohk.io" = {
+    "hydra2.aws.iohkdev.io" = {
       email = "info@iohk.io";
       user = "nginx";
       group = "nginx";
@@ -142,7 +142,7 @@ in {
         listen 80;
         listen [::]:80;
         location /.well-known/acme-challenge {
-          root ${config.security.acme.certs."hydra.iohk.io".webroot};
+          root ${config.security.acme.certs."hydra2.aws.iohkdev.io".webroot};
         }
         location / {
           return 301 https://$host$request_uri;
@@ -151,10 +151,10 @@ in {
 
       server {
         listen 443 ssl spdy;
-        server_name hydra.iohk.io;
+        server_name hydra2.aws.iohkdev.io;
 
-        ssl_certificate /var/lib/acme/hydra.iohk.io/fullchain.pem;
-        ssl_certificate_key /var/lib/acme/hydra.iohk.io/key.pem;
+        ssl_certificate /var/lib/acme/hydra2.aws.iohkdev.io/fullchain.pem;
+        ssl_certificate_key /var/lib/acme/hydra2.aws.iohkdev.io/key.pem;
 
         location / {
           proxy_pass http://127.0.0.1:8080;

@@ -18,7 +18,7 @@ in {
     deployment.ec2.elasticIPv4 = resources.elasticIPs.hydra-ip;
 
     deployment.route53.accessKeyId = config.deployment.ec2.accessKeyId;
-    deployment.route53.hostName = "hydra.aws.iohkdev.io";
+    deployment.route53.hostName = "hydra2.aws.iohkdev.io";
   };
 
   cardano-deployer = { config, pkgs, resources, ... }: {
