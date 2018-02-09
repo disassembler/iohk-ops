@@ -85,13 +85,6 @@ import           System.Console.ANSI          (Color (Green, Red),
                                                SGR (Reset, SetColor), setSGR)
 import           System.IO.Error              (ioeGetErrorString)
 import           System.Exit                  (ExitCode (ExitFailure, ExitSuccess), die)
-import           Travis                       (BuildId, BuildNumber,
-                                               TravisBuild (matrix, number),
-                                               TravisInfo2 (ti2commit),
-                                               TravisJobInfo (tjiId),
-                                               TravisYaml, env, fetchTravis,
-                                               fetchTravis2, global, lookup',
-                                               parseTravisYaml)
 import           Turtle                       (empty, void)
 import           Turtle.Prelude               (mktempdir, proc, procStrict,
                                                pushd)
@@ -100,36 +93,29 @@ import           Types                        (ApplicationVersion (ApplicationVe
                                                Arch (Linux64, Mac64, Win64))
 import           Utils                        (fetchCachedUrl, fetchCachedUrlWithSHA1, fetchUrl)
 
-data CiResult = TravisResult {
-      travislocalPath :: T.Text
-    , travisVersion   :: ApplicationVersion 'Mac64
-    , cardanoCommit   :: T.Text
-    , travisJobNumber :: T.Text
-    , travisUrl       :: T.Text
-  }
-  | AppveyorResult {
-      avLocalPath :: T.Text
-    , avVersion   :: ApplicationVersion 'Win64
-    , avUrl       :: T.Text
-  }
-  | BuildkiteResult {
-      bkLocalPath     :: T.Text
-    , bkVersion       :: ApplicationVersion 'Mac64
-    , bkCardanoCommit :: T.Text
-    , bkBuildNumber   :: Int
-    , bkUrl           :: T.Text
-  }
-  deriving (Show)
+data CiResult = AppveyorResult
+                { avLocalPath :: T.Text
+                , avVersion   :: ApplicationVersion 'Win64
+                , avUrl       :: T.Text
+                }
+              | BuildkiteResult
+                { bkLocalPath     :: T.Text
+                , bkVersion       :: ApplicationVersion 'Mac64
+                , bkCardanoCommit :: T.Text
+                , bkBuildNumber   :: Int
+                , bkUrl           :: T.Text
+                }
+              deriving (Show)
+
 data GlobalResults = GlobalResults {
       grCardanoCommit      :: T.Text
     , grDaedalusCommit     :: T.Text
     , grApplicationVersion :: Integer
   } deriving Show
-data InstallersResults = InstallersResults {
-      travisResult   :: Maybe CiResult
-    , buildkiteResult :: Maybe CiResult
-    , appveyorResult :: Maybe CiResult
-    , globalResult   :: GlobalResults
+data InstallersResults = InstallersResults
+  { appveyorResult  :: Maybe CiResult
+  , buildkiteResult :: Maybe CiResult
+  , globalResult    :: GlobalResults
   } deriving Show
 type TextPath = T.Text
 type RepoUrl = T.Text
@@ -142,8 +128,7 @@ data VersionJson = VersionJson {
 
 instance ToJSON VersionJson
 
-extractVersionFromTravis :: TravisYaml -> Maybe T.Text
-extractVersionFromTravis yaml = lookup' "VERSION" (global (env yaml))
+type BuildNumber = Int
 
 -- | Get VERSION environment variable from pipeline definition.
 -- First looks in global env, otherwise finds first build step with a version.
@@ -197,15 +182,10 @@ fetchDaedalusRepoYAML path rev = do
 
 fetchDaedalusVersion :: T.Text -> IO T.Text
 fetchDaedalusVersion rev = do
-  let buildkiteVer = (>>= extractVersionFromBuildkite) <$> fetchDaedalusRepoYAML ".buildkite/pipeline.yml" rev
-  let travisVer = (>>= extractVersionFromTravis) <$> fetchDaedalusRepoYAML ".travis.yml" rev
-  buildkiteVer `orElse` travisVer >>= \case
+  yaml <- fetchDaedalusRepoYAML ".buildkite/pipeline.yml" rev
+  case yaml >>= extractVersionFromBuildkite of
     Just ver -> return ver
-    Nothing -> fail "unable to find daedalus version in either .buildkite/pipeline.yml or .travis.yml"
-
--- | Try option A and if that doesn't work then try option B.
-orElse :: Monad m => m (Maybe a) -> m (Maybe a) -> m (Maybe a)
-orElse ma mb = ma >>= maybe mb (pure . Just)
+    Nothing -> fail "unable to find daedalus version in .buildkite/pipeline.yml"
 
 -- | Read the Buildkite token from a config file. This file is not
 -- checked into git, so the user needs to create it themself.
@@ -238,12 +218,11 @@ realFindInstallers daedalus_rev keys = do
     findGlobal = head . catMaybes . map fst
   _ <- proc "ls" [ "-ltrha", T.pack $ FP.encodeString tempdir ] mempty
   return $ InstallersResults
-    (findResult isTravisResult results) (findResult isBuildkiteResult results)
-    (findResult isAppveyorResult results) (findGlobal results)
+    (findResult isAppveyorResult results)
+    (findResult isBuildkiteResult results)
+    (findGlobal results)
 
-isTravisResult, isAppveyorResult, isBuildkiteResult :: CiResult -> Bool
-isTravisResult    (TravisResult _ _ _ _ _)    = True
-isTravisResult    _                           = False
+isAppveyorResult, isBuildkiteResult :: CiResult -> Bool
 isAppveyorResult  (AppveyorResult _ _ _)      = True
 isAppveyorResult  _                           = False
 isBuildkiteResult (BuildkiteResult _ _ _ _ _) = True
@@ -251,13 +230,11 @@ isBuildkiteResult _                           = False
 
 -- | Path to where build result is downloaded.
 resultLocalPath :: CiResult -> T.Text
-resultLocalPath (TravisResult p _ _ _ _) = p
 resultLocalPath (AppveyorResult p _ _) = p
 resultLocalPath (BuildkiteResult p _ _ _ _) = p
 
 -- | Text describing what the build result is
 resultDesc :: CiResult -> T.Text
-resultDesc (TravisResult _ _ _ _ _) = "darwin installer (from Travis)"
 resultDesc (AppveyorResult _ _ _) = "windows installer"
 resultDesc (BuildkiteResult _ _ _ _ _) = "darwin installer (from Buildkite)"
 
@@ -332,27 +309,6 @@ makeDaedalusVersion ver = makeDaedalusVersion' ver . T.pack . show
 makeDaedalusVersion' :: T.Text -> T.Text -> ApplicationVersion a
 makeDaedalusVersion' ver num = ApplicationVersion $ ver <> "." <> num
 
-processDarwinBuildTravis :: T.Text -> T.Text -> T.Text -> BuildId -> (ApplicationVersionKey 'Win64, ApplicationVersionKey 'Mac64) -> T.Text -> IO (GlobalResults, CiResult)
-processDarwinBuildTravis daedalus_rev daedalus_version tempdir buildId versionKey ciUrl = do
-  obj <- fetchTravis buildId
-  let
-    filename = "Daedalus-installer-" <> daedalus_version <> "." <> (number obj) <> ".pkg"
-    version :: ApplicationVersion 'Mac64
-    version = makeDaedalusVersion' daedalus_version (number obj)
-    url = "http://s3.eu-central-1.amazonaws.com/daedalus-travis/" <> filename
-    outFile = tempdir <> "/" <> filename
-  buildLog <- fetchUrl mempty $ "https://api.travis-ci.org/jobs/" <> (T.pack $ show $ tjiId $ head $ drop 1 $ matrix obj) <> "/log"
-  let
-    cardanoBuildNumber = extractBuildId buildLog
-  cardanoInfo <- fetchTravis2 "input-output-hk/cardano-sl" cardanoBuildNumber
-
-  printDarwinBuildInfo "travis" cardanoBuildNumber (ti2commit cardanoInfo) url
-
-  appVersion <- liftIO $ grabAppVersion (ti2commit cardanoInfo) versionKey
-  fetchCachedUrl url filename outFile
-
-  pure (GlobalResults (ti2commit cardanoInfo) daedalus_rev appVersion, TravisResult outFile version (ti2commit cardanoInfo) (number obj) ciUrl)
-
 printDarwinBuildInfo :: String -> Integer -> T.Text -> T.Text -> IO ()
 printDarwinBuildInfo ci cardanoBuildNumber cardanoRev url = do
   setSGR [ SetColor Background Dull Red ]
@@ -395,15 +351,16 @@ grabAppVersion rev (winKey, macosKey) = do
     else
       error $ "applicationVersions dont match"
 
-data StatusContext = StatusContextBuildkite T.Text Int
-                   | StatusContextTravis BuildId
-                   | StatusContextAppveyor Appveyor.Username Appveyor.Project (ApplicationVersion 'Win64)
+data StatusContext = StatusContextAppveyor Appveyor.Username Appveyor.Project (ApplicationVersion 'Win64)
+                   | StatusContextBuildkite T.Text Int
                    deriving (Show, Eq)
 
 parseStatusContext :: Status -> Maybe StatusContext
-parseStatusContext status = parseBuildKite <|> parseTravis <|> parseAppveyor
+parseStatusContext status = parseAppveyor <|> parseBuildKite
   where
-    parseBuildKite, parseTravis, parseAppveyor :: Maybe StatusContext
+    parseAppveyor = guard isAppveyor >> pure (StatusContextAppveyor user project version)
+      where (user, project, version) = parseCiUrl $ targetUrl status
+    parseBuildKite, parseAppveyor :: Maybe StatusContext
     parseBuildKite = guard isBuildkite >> do
       let parts = T.splitOn "/" (context status)
       repo <- headMay . tail $ parts
@@ -411,28 +368,16 @@ parseStatusContext status = parseBuildKite <|> parseTravis <|> parseAppveyor
       lastPart <- lastMay . T.splitOn "/" . T.pack . uriPath $ uri
       buildNum <- readMay . T.unpack $ lastPart
       pure $ StatusContextBuildkite repo buildNum
-    parseTravis = guard isTravis >> do
-      part1 <- headMay . drop 6 . T.splitOn "/" . targetUrl $ status
-      buildId <- headMay . T.splitOn "?" $ part1
-      pure $ StatusContextTravis buildId
-    parseAppveyor = guard isAppveyor >> pure (StatusContextAppveyor user project version)
-      where (user, project, version) = parseCiUrl $ targetUrl status
 
-    isBuildkite = "buildkite/" `T.isPrefixOf` context status
-    isTravis = context status == "continuous-integration/travis-ci/push"
     isAppveyor = context status == "continuous-integration/appveyor/branch"
+    isBuildkite = "buildkite/" `T.isPrefixOf` context status
 
 findInstaller :: HasCallStack => APIToken -> T.Text -> T.Text -> T.Text -> (ApplicationVersionKey 'Win64, ApplicationVersionKey 'Mac64) -> Status -> IO (Maybe GlobalResults, Maybe CiResult)
 findInstaller buildkiteToken daedalus_rev daedalus_version tempdir keys status = do
-  -- TODO check for 404's
-  -- TODO check file contents with libmagic
   case parseStatusContext status of
     Just (StatusContextBuildkite repo buildNum) -> do
-      (globalResults, travisResult') <- processDarwinBuildKite buildkiteToken daedalus_rev daedalus_version tempdir buildNum keys (targetUrl status)
-      return (Just globalResults, Just travisResult')
-    Just (StatusContextTravis buildId) -> do
-      (globalResults, travisResult') <- processDarwinBuildTravis daedalus_rev daedalus_version tempdir buildId keys (targetUrl status)
-      return (Just globalResults, Just travisResult')
+      (globalResults, buildkiteResult') <- processDarwinBuildKite buildkiteToken daedalus_rev daedalus_version tempdir buildNum keys (targetUrl status)
+      return (Just globalResults, Just buildkiteResult')
     Just (StatusContextAppveyor user project version) -> do
       appveyorBuild <- fetchAppveyorBuild user project version
       let jobid = appveyorBuild ^. build . jobs . to head . jobId
@@ -484,12 +429,9 @@ githubWikiRecord results = join [ T.pack $ show appVersion
                                 , githubLink daedalus_rev "daedalus"
                                 , githubLink cardano_rev "cardano-sl"
                                 , ciLink buildkite
-                                , ciLink travis
                                 , ciLink appvey
                                 , "DATE" ]
   where
-
-    travisDetails = travisResult results
     buildkiteDetails = buildkiteResult results
     appveyorDetails = appveyorResult results
     globalDetails = globalResult results
@@ -498,7 +440,6 @@ githubWikiRecord results = join [ T.pack $ show appVersion
     cardano_rev = grCardanoCommit globalDetails
     daedalus_rev = grDaedalusCommit globalDetails
 
-    travis = liftA2 (,) (travisJobNumber <$> travisDetails) (travisUrl <$> travisDetails)
     appvey = liftA2 (,) (T.pack . show . avVersion <$> appveyorDetails) (avUrl <$> appveyorDetails)
     buildkite = liftA2 (,) (T.pack . show . bkBuildNumber <$> buildkiteDetails) (bkUrl <$> buildkiteDetails)
 
@@ -513,7 +454,7 @@ githubWikiRecord results = join [ T.pack $ show appVersion
 updateVersionJson :: InstallersResults -> T.Text -> IO ()
 updateVersionJson info bucket = do
   let
-    macVersion = (bkVersion <$> buildkiteResult info) <|> (travisVersion <$> travisResult info)
+    macVersion = bkVersion <$> buildkiteResult info
     winVersion = avVersion <$> appveyorResult info
     json = encode $ VersionJson "" (fromMaybe "" macVersion) (fromMaybe "" winVersion)
     uploadOneFile :: BucketName -> LBS.ByteString -> ObjectKey -> AWST (ResourceT IO) ()
